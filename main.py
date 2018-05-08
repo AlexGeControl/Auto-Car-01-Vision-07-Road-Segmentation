@@ -44,6 +44,7 @@ def load_vgg(sess, vgg_path):
     vgg_layer7_out_tensor = vgg_graph.get_tensor_by_name(vgg_layer7_out_tensor_name)
 
     return vgg_input_tensor, vgg_keep_prob_tensor, vgg_layer3_out_tensor, vgg_layer4_out_tensor, vgg_layer7_out_tensor
+# load_vgg unit test:
 tests.test_load_vgg(load_vgg, tf)
 
 
@@ -117,7 +118,7 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     )
 
     return decoder_layer3
-
+# layers unit test:
 tests.test_layers(layers)
 
 
@@ -141,15 +142,21 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
             logits = logits 
         )
     )
+    # mean IOU:
+    mean_iou, mean_iou_op = tf.metrics.mean_iou(
+        tf.argmax(tf.cast(correct_label, tf.float32), axis = -1),
+        tf.argmax(nn_last_layer, axis = -1),
+        num_classes
+    )
     # optimization
     train_op = tf.train.AdamOptimizer(learning_rate).minimize(cross_entropy_loss)
 
-    return logits, train_op, cross_entropy_loss
-
+    return logits, train_op, cross_entropy_loss, mean_iou_op, mean_iou
+# optimize unit test:
 tests.test_optimize(optimize)
 
 
-def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_loss, input_image,
+def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_loss, mean_iou_op, mean_iou, input_image,
              correct_label, keep_prob, learning_rate):
     """
     Train neural network and print out the loss during training.
@@ -166,29 +173,31 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
     """
     import numpy as np
 
-    # initialize variables:
-    sess.run(tf.global_variables_initializer())
-
+    # add entry for tensorboard:
+    tf.summary.scalar('cross_entropy_loss', cross_entropy_loss)
+    tf.summary.scalar('mean_iou', mean_iou)
 
     # tensorboard visualization
-    tf.summary.scalar('cross_entropy_loss', cross_entropy_loss)
-
     summary_op = tf.summary.merge_all()
 
     # initialize logger:
     logger = tf.summary.FileWriter(
-        'tensorboard/train',
+        'tensorboard/training',
         sess.graph
     )
 
+    # initialize variables:
+    sess.run(tf.global_variables_initializer())
+    sess.run(tf.local_variables_initializer())
+    
     # training:
     for epoch in range(epochs):
         losses = []
         batch_idx = 0
         # generate mini batch:
         for X, Y in get_batches_fn(batch_size):
-            _, loss, summary = sess.run(
-                [train_op, cross_entropy_loss, summary_op],
+            _, _, loss, summary = sess.run(
+                [train_op, mean_iou_op, cross_entropy_loss, summary_op],
                 feed_dict = {
                     input_image: X,
                     correct_label: Y,
@@ -237,14 +246,15 @@ def run():
         H, W = image_shape
         correct_label = tf.placeholder(tf.float32, shape=[None, H, W, num_classes], name='label_groudtruth')
         learning_rate = tf.placeholder(tf.float32, name='learning_rate')
-        logits, train_op, cross_entropy_loss = optimize(decoder_output, correct_label, learning_rate, num_classes)
+        logits, train_op, cross_entropy_loss, mean_iou_op, mean_iou = optimize(decoder_output, correct_label, learning_rate, num_classes)
 
         # Train NN using the train_nn function
         train_nn(
             sess, 
             8, 8, 
             get_batches_fn,
-            train_op, cross_entropy_loss,
+            train_op, cross_entropy_loss, 
+            mean_iou_op, mean_iou, 
             vgg_input_tensor, correct_label,
             vgg_keep_prob_tensor, learning_rate
         )
