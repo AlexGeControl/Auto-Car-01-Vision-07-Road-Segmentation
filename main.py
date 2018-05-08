@@ -251,7 +251,7 @@ def run():
         # Train NN using the train_nn function
         train_nn(
             sess, 
-            8, 8, 
+            96, 12, 
             get_batches_fn,
             train_op, cross_entropy_loss, 
             mean_iou_op, mean_iou, 
